@@ -608,12 +608,24 @@ function normalizeStatus_(raw){
   if(/upcoming|waiting|not\s*started|pending/i.test(s)) return 'Upcoming';
   return s || 'Not Started';
 }
+function findCol_(row, mustInclude, mustExclude){
+  const keys = Object.keys(row);
+  for(const k of keys){
+    const kl = k.toLowerCase();
+    if(mustInclude.every(w=>kl.includes(w)) && !(mustExclude||[]).some(w=>kl.includes(w))){
+      return row[k];
+    }
+  }
+  return '';
+}
 function buildBatches_(rows){
   const today = new Date();
   return rows.map((r,idx)=>{
-    const startStr = r['Batch start Date'] || r['Batch start Date '];
-    const endStr = r['Batch End Date'];
-    const status = normalizeStatus_(r['Batch Status']);
+    const startStr = r['Batch start Date'] || r['Batch start Date '] || findCol_(r,['start','date']);
+    const endStr = r['Batch End Date'] || findCol_(r,['end','date']);
+    let statusRaw = r['Batch Status'];
+    if(!str_(statusRaw)) statusRaw = findCol_(r,['status'], ['assess','placement']);
+    const status = normalizeStatus_(statusRaw);
     let pct = 0;
     const start = new Date(startStr), end = new Date(endStr);
     if(status==='Completed') pct = 100;
