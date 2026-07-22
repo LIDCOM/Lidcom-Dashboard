@@ -601,15 +601,22 @@ function buildCentres_(rows){
     moustatus: str_(r['TC MOU Status']), signature: str_(r['Signature'])
   })).filter(c=>c.tcname);
 }
+function normalizeStatus_(raw){
+  const s = str_(raw);
+  if(/complet/i.test(s)) return 'Completed';
+  if(/ongoing|progress|running/i.test(s)) return 'Ongoing';
+  if(/upcoming|waiting|not\s*started|pending/i.test(s)) return 'Upcoming';
+  return s || 'Not Started';
+}
 function buildBatches_(rows){
   const today = new Date();
   return rows.map((r,idx)=>{
     const startStr = r['Batch start Date'] || r['Batch start Date '];
     const endStr = r['Batch End Date'];
-    const status = str_(r['Batch Status']);
+    const status = normalizeStatus_(r['Batch Status']);
     let pct = 0;
     const start = new Date(startStr), end = new Date(endStr);
-    if(/completed/i.test(status)) pct = 100;
+    if(status==='Completed') pct = 100;
     else if(!isNaN(start) && !isNaN(end)){
       const total = end-start, elapsed = today-start;
       pct = total>0 ? Math.max(0,Math.min(100,Math.round(elapsed/total*1000)/10)) : 0;
@@ -619,7 +626,7 @@ function buildBatches_(rows){
       tcname: str_(r['TC Name']), jobrole: str_(r['Job Role']), batchsize: num_(r['Batch Size']),
       batchtime: str_(r['Batch Time']), startdate: fmtDate_(startStr), enddate: fmtDate_(endStr),
       ojtstart: fmtDate_(r['OJT Start Date']), ojtend: fmtDate_(r['OJT End Date']),
-      trainer: str_(r['Trainer Name'])||'Not Defined', status: status||'Not Started', pct: pct
+      trainer: str_(r['Trainer Name'])||'Not Defined', status: status, pct: pct
     };
   }).filter(b=>b.batchid);
 }
@@ -855,26 +862,42 @@ function fBatches(){
   );
 }
 
+function batchFilterActive_(){
+  return !!(F.district || F.batchid || F.trainer || F.tstatus || F.astatus || F.pstatus || F.from || F.to || F.centre);
+}
+
 function fJobroles(){
-  return DATA.jobroles.filter(j=>
+  const base = DATA.jobroles.filter(j=>
     (!F.sector||j.sector===F.sector) &&
     (!F.jobrole||j.jobrole===F.jobrole)
   );
+  if(!batchFilterActive_()) return base;
+  const ba = fBatches();
+  const activeCombos = new Set(ba.map(b=>b.sector+'||'+b.jobrole));
+  return base.filter(j=>activeCombos.has(j.sector+'||'+j.jobrole));
 }
 
 function fCentres(){
-  return DATA.centres.filter(c=>
+  const base = DATA.centres.filter(c=>
     (!F.sector||c.sector===F.sector) &&
     (!F.district||c.district===F.district) &&
     (!F.centre||c.tcname===F.centre)
   );
+  if(!F.batchid && !F.trainer && !F.tstatus && !F.astatus && !F.pstatus && !F.from && !F.to && !F.jobrole) return base;
+  const ba = fBatches();
+  const activeCentres = new Set(ba.map(b=>b.sector+'||'+b.tcname));
+  return base.filter(c=>activeCentres.has(c.sector+'||'+c.tcname));
 }
 
 function fTrainers(){
-  return DATA.trainers.filter(t=>
+  const base = DATA.trainers.filter(t=>
     (!F.sector||t.sector===F.sector) &&
     (!F.trainer||t.name===F.trainer)
   );
+  if(!batchFilterActive_() && !F.jobrole) return base;
+  const ba = fBatches();
+  const activeTrainers = new Set(ba.map(b=>b.trainer));
+  return base.filter(t=>activeTrainers.has(t.name));
 }
 
 function fAssessments(){
