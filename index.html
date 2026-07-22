@@ -568,25 +568,49 @@ function applyLiveData_(json){
   if(json.bstatus && typeof json.bstatus==='object') BSTATUS = json.bstatus;
   if(typeof renderAll==='function'){ populateFilterOptions(); renderAll(); }
 }
-async function fetchLiveSheetData(){
-  if(!APPS_SCRIPT_URL) return null;
-  try{
-    const bustUrl = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.includes('?') ? '&' : '?') + '_=' + Date.now();
-    const res = await fetch(bustUrl, { cache: 'no-store' });
-    const json = await res.json();
-    liveConnStatus = "Connected — updated " + new Date().toLocaleTimeString();
-    applyLiveData_(json);
-    const bar = document.getElementById('syncStatusBar');
-    if(bar) bar.innerHTML = '🟢 ' + liveConnStatus + ' &nbsp;|&nbsp; ' +
-      DATA.trainers.length + ' trainers, ' + DATA.jobroles.length + ' job roles, ' +
-      DATA.batches.length + ' batches loaded from sheet';
-    return json;
-  }catch(err){
-    liveConnStatus = "Connection failed: " + err.message;
-    const bar = document.getElementById('syncStatusBar');
-    if(bar) bar.innerHTML = '🔴 ' + liveConnStatus + ' — showing last-known data';
-    return null;
-  }
+function fetchLiveSheetData(){
+  return new Promise((resolve) => {
+    if(!APPS_SCRIPT_URL){ resolve(null); return; }
+    const cbName = '__lidcomCb_' + Date.now();
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      liveConnStatus = "Connection failed: timed out";
+      const bar = document.getElementById('syncStatusBar');
+      if(bar) bar.innerHTML = '🔴 ' + liveConnStatus + ' — showing last-known data';
+      resolve(null);
+    }, 15000);
+
+    function cleanup(){
+      clearTimeout(timeoutId);
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if(s) s.remove();
+    }
+
+    window[cbName] = function(json){
+      cleanup();
+      liveConnStatus = "Connected — updated " + new Date().toLocaleTimeString();
+      applyLiveData_(json);
+      const bar = document.getElementById('syncStatusBar');
+      if(bar) bar.innerHTML = '🟢 ' + liveConnStatus + ' &nbsp;|&nbsp; ' +
+        DATA.trainers.length + ' trainers, ' + DATA.jobroles.length + ' job roles, ' +
+        DATA.batches.length + ' batches loaded from sheet';
+      resolve(json);
+    };
+
+    const script = document.createElement('script');
+    script.id = cbName;
+    script.src = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.includes('?') ? '&' : '?') +
+      'callback=' + cbName + '&_=' + Date.now();
+    script.onerror = function(){
+      cleanup();
+      liveConnStatus = "Connection failed: script load error";
+      const bar = document.getElementById('syncStatusBar');
+      if(bar) bar.innerHTML = '🔴 ' + liveConnStatus + ' — showing last-known data';
+      resolve(null);
+    };
+    document.head.appendChild(script);
+  });
 }
 if(APPS_SCRIPT_URL){
   document.addEventListener('DOMContentLoaded', function(){
